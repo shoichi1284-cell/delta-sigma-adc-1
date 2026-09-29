@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ΔΣ型ADC 学習シミュレータ</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#f4f6f9;color:#172033}
+header{background:#172033;color:#fff;padding:24px}
+header h1{margin:0 0 6px;font-size:28px}
+main{max-width:1150px;margin:auto;padding:18px}
+.card{background:#fff;border-radius:14px;padding:20px;margin:16px 0;box-shadow:0 3px 14px #0001}
+.controls{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+label{font-weight:700;display:block;margin-bottom:8px}input[type=range]{width:100%}
+.value{font-size:1.2em;font-weight:800}button{padding:10px 16px;border:0;border-radius:8px;background:#172033;color:white;cursor:pointer;margin:4px}
+button:disabled{opacity:.4}.stepbar{display:flex;gap:5px;overflow:auto;margin:12px 0}
+.stepbar div{min-width:115px;padding:9px;background:#e7ebf2;border-radius:8px;text-align:center;font-size:13px}
+.stepbar .active{background:#172033;color:#fff}
+.grid{display:grid;grid-template-columns:1.3fr .7fr;gap:16px}
+canvas{width:100%;height:310px;border:1px solid #e1e5eb;border-radius:10px;background:#fff}
+.explain{line-height:1.8}.tag{display:inline-block;background:#eef2ff;padding:5px 9px;border-radius:99px;margin:3px}
+table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #e5e7eb;padding:8px;text-align:left}
+.note{background:#f8fafc;padding:12px;border-left:4px solid #667085;line-height:1.7}
+@media(max-width:800px){.controls,.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+<h1>ΔΣ型ADC 学習シミュレータ</h1>
+<div>高専4年生向け：オーバーサンプリング・ノイズシェーピング・フィードバックを段階的に理解する</div>
+</header>
+<main>
+<section class="card">
+<h2>パラメータ</h2>
+<div class="controls">
+<div><label>入力電圧：<span id="vinV">2.50</span> V</label><input id="vin" type="range" min="0.1" max="4.9" step="0.01" value="2.5"></div>
+<div><label>分解能：<span id="bitsV">8</span> bit</label><input id="bits" type="range" min="4" max="16" step="1" value="8"></div>
+<div><label>OSR：<span id="osrV">32</span></label><input id="osr" type="range" min="8" max="64" step="8" value="32"></div>
+</div>
+<p><span class="tag">オーバーサンプリング</span><span class="tag">ノイズシェーピング</span><span class="tag">フィードバック</span></p>
+</section>
+
+<section class="card">
+<div class="stepbar" id="stepbar"></div>
+<h2 id="title"></h2>
+<p class="explain" id="explain"></p>
+<button id="prev">← 前へ</button><button id="next">次へ →</button><button id="reset">最初から</button>
+</section>
+
+<section class="grid">
+<div class="card"><h2 id="graphTitle">波形</h2><canvas id="canvas" width="800" height="310"></canvas></div>
+<div class="card">
+<h2>数値</h2>
+<table>
+<tr><th>入力</th><td id="vinT"></td></tr>
+<tr><th>分解能</th><td id="bitsT"></td></tr>
+<tr><th>LSB</th><td id="lsbT"></td></tr>
+<tr><th>OSR</th><td id="osrT"></td></tr>
+<tr><th>平均1密度</th><td id="densityT">—</td></tr>
+<tr><th>出力コード</th><td id="codeT">—</td></tr>
+</table>
+</div>
+</section>
+
+<section class="card">
+<h2>このシミュレータで確認すること</h2>
+<div class="note">
+<b>オーバーサンプリング：</b>必要な帯域より高い周波数で多数のサンプルを取得する。<br>
+<b>フィードバック：</b>1bit量子化器の出力をDACで戻し、入力との差を積分器へ与える。<br>
+<b>ノイズシェーピング：</b>量子化ノイズを信号帯域外の高周波側へ押し出す。<br>
+<b>デジタルフィルタ：</b>高周波側のノイズを除去し、最終的な多ビット値を得る。
+</div>
+<p class="note">※教育用の1次1bitΔΣ変調器を簡略化したモデルです。実際のΔΣ ADCでは、変調器の次数、ループフィルタ、デジタルフィルタ、クロック、回路非理想性などによって動作が変わります。OSRはシミュレーションで使用するサンプル数に反映しています。</p>
+</section>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+let step=0;
+const steps=[
+["STEP 0","開始","「次へ」でΔΣ型ADCの変換過程を順番に確認します。OSRを変えると、実際に使用するサンプル数も変化します。"],
+["STEP 1","アナログ入力","入力電圧は連続値です。ここでは0～5 Vを想定し、設定した入力電圧を正規化してΔΣ変調器へ入力します。"],
+["STEP 2","オーバーサンプリング","信号帯域に必要なサンプリング周波数より高い周波数で多数のサンプルを取得します。OSRを大きくすると、1回の出力値を作るために使うサンプル数が増えます。"],
+["STEP 3","差分・積分","入力と前回の1bit DACフィードバック値との差を積分器に蓄積します。誤差が時間方向に積み上がることで、入力に追従する1bit列が作られます。"],
+["STEP 4","1bit量子化","積分器の出力を0を境に判定し、+1または−1の1bit信号にします。この1bit列の平均値に入力信号の情報が含まれます。"],
+["STEP 5","フィードバック・ノイズシェーピング","1bit出力をDACで+1/−1のアナログ値に戻し、入力側へフィードバックします。このループによって量子化ノイズは低周波側から高周波側へ押し出される特性を持ちます。下のグラフでは簡易スペクトルも確認できます。"],
+["STEP 6","デジタルフィルタ・デシメーション","高速な1bit列を平均化する概念的なローパス処理で高周波ノイズを抑え、その後にデータレートを下げて多ビットのデジタル値を得ます。"]
+];
+function params(){const v=+$('vin').value,b=+$('bits').value,o=+$('osr').value;$('vinV').textContent=v.toFixed(2);$('bitsV').textContent=b;$('osrV').textContent=o;$('vinT').textContent=v.toFixed(2)+' V';$('bitsT').textContent=b+' bit';$('lsbT').textContent=(5/(2**b)).toExponential(3)+' V';$('osrT').textContent=o;return{v,b,o}}
+function simulate(){const p=params(),x=2*(p.v/5)-1,N=p.o*32;let state=0,qPrev=-1;const bits=[],states=[],errors=[],dac=[];for(let i=0;i<N;i++){const err=x-qPrev;state+=err;const q=state>=0?1:-1;bits.push(q>0?1:0);states.push(state);errors.push(err);dac.push(q);qPrev=q}const density=bits.reduce((a,b)=>a+b,0)/N,code=Math.round(density*((2**p.b)-1));return{p,x,N,bits,states,errors,dac,density,code}}
+function spectrum(values){const n=Math.min(values.length,512),arr=values.slice(0,n),m=[];for(let k=0;k<=Math.floor(n/2);k++){let re=0,im=0;for(let i=0;i<n;i++){const a=2*Math.PI*k*i/n;re+=arr[i]*Math.cos(a);im-=arr[i]*Math.sin(a)}m.push(Math.sqrt(re*re+im*im)/n)}return m}
+function draw(s){const c=$('canvas'),ctx=c.getContext('2d'),W=c.width,H=c.height;ctx.clearRect(0,0,W,H);ctx.strokeStyle='#d8dde6';ctx.lineWidth=1;for(let i=0;i<5;i++){let y=30+i*(H-60)/4;ctx.beginPath();ctx.moveTo(45,y);ctx.lineTo(W-15,y);ctx.stroke()}ctx.fillStyle='#172033';ctx.font='14px sans-serif';let data=[],title='';if(step===1){data=Array.from({length:Math.min(256,s.N)},()=>s.p.v);title='アナログ入力'}else if(step===2){data=Array.from({length:Math.min(256,s.N)},(_,i)=>s.p.v+0.04*Math.sin(i*.35));title=`オーバーサンプリング（${s.N}サンプル）`}else if(step===3){data=s.states.slice(0,256);title='積分器出力'}else if(step===4){data=s.bits.slice(0,256);title='1bit出力'}else if(step===5){data=spectrum(s.dac);title='簡易スペクトル：高周波側の成分'}else if(step===6){data=s.dac.slice(0,256);title='デジタルフィルタ前の1bit列'}$('graphTitle').textContent=title;if(!data.length)return;let min=Math.min(...data),max=Math.max(...data);if(min===max){min-=.1;max+=.1}ctx.strokeStyle='#172033';ctx.lineWidth=2;ctx.beginPath();data.forEach((v,i)=>{let x=45+i*(W-65)/Math.max(1,data.length-1),y=H-30-(v-min)/(max-min)*(H-60);i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.stroke();ctx.fillStyle='#172033';ctx.fillText(title,50,20);if(step===5){ctx.fillText('← 低周波',50,H-8);ctx.fillText('高周波 →',W-110,H-8)}}
+function render(){const s=simulate(),info=steps[step];$('title').textContent=info[1];$('explain').textContent=info[2];$('stepbar').innerHTML=steps.map((x,i)=>`<div class="${i===step?'active':''}">${x[0]}<br>${x[1]}</div>`).join('');$('prev').disabled=step===0;$('next').disabled=step===6;$('densityT').textContent=(s.density*100).toFixed(1)+' %';$('codeT').textContent=step===6?s.code+' (概念値)':'—';draw(s)}
+$('next').onclick=()=>{if(step<6){step++;render()}};$('prev').onclick=()=>{if(step>0){step--;render()}};$('reset').onclick=()=>{step=0;render()};[$('vin'),$('bits'),$('osr')].forEach(x=>x.addEventListener('input',render));render();
+</script>
+</body>
+</html>
